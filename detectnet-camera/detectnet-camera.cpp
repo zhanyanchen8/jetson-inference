@@ -36,7 +36,7 @@
 #include "detectNet.h"
 
 
-#define DEFAULT_CAMERA -1	// -1 for onboard camera, or change to index of /dev/video V4L2 camera (>=0)	
+#define DEFAULT_CAMERA 0	// -1 for onboard camera, or change to index of /dev/video V4L2 camera (>=0)	
 		
 
 bool signal_recieved = false;
@@ -83,7 +83,7 @@ int main( int argc, char** argv )
 	/*
 	 * create the camera device
 	 */
-	gstCamera* camera = gstCamera::Create(DEFAULT_CAMERA);
+	gstCamera* camera = gstCamera::Create(640, 480, DEFAULT_CAMERA);
 	
 	if( !camera )
 	{
@@ -104,7 +104,7 @@ int main( int argc, char** argv )
 	
 	if( !net )
 	{
-		printf("detectnet-camera:   failed to initialize imageNet\n");
+		printf("detectnet-camera:   failed to initialize detectNet\n");
 		return 0;
 	}
 
@@ -179,14 +179,14 @@ int main( int argc, char** argv )
 			printf("\ndetectnet-camera:  failed to capture frame\n");
 
 		// convert from YUV to RGBA
-		void* imgRGBA = NULL;
+		void* imgRGBA = NULL; //where image is stored
 		
 		if( !camera->ConvertRGBA(imgCUDA, &imgRGBA) )
 			printf("detectnet-camera:  failed to convert from NV12 to RGBA\n");
 
 		// classify image with detectNet
 		int numBoundingBoxes = maxBoxes;
-	
+		
 		if( net->Detect((float*)imgRGBA, camera->GetWidth(), camera->GetHeight(), bbCPU, &numBoundingBoxes, confCPU))
 		{
 			printf("%i bounding boxes detected\n", numBoundingBoxes);
@@ -201,6 +201,8 @@ int main( int argc, char** argv )
 				
 				printf("detected obj %i  class #%u (%s)  confidence=%f\n", n, nc, net->GetClassDesc(nc), confCPU[n*2]);
 				printf("bounding box %i  (%f, %f)  (%f, %f)  w=%f  h=%f\n", n, bb[0], bb[1], bb[2], bb[3], bb[2] - bb[0], bb[3] - bb[1]); 
+				//bounding box information described in bb[0], bb[1], bb[2], bb[3]
+				
 				
 				if( nc != lastClass || n == (numBoundingBoxes - 1) )
 				{
