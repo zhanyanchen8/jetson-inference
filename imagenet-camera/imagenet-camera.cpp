@@ -28,14 +28,18 @@
 #include <stdio.h>
 #include <signal.h>
 #include <unistd.h>
+#include <cstring>
+#include <fstream>
+#include <string>
+// #include <Python.h>
 
 #include "cudaNormalize.h"
 #include "cudaFont.h"
 #include "imageNet.h"
 
+using namespace std;
 
-#define DEFAULT_CAMERA -1	// -1 for onboard camera, or change to index of /dev/video V4L2 camera (>=0)	
-		
+#define DEFAULT_CAMERA 0	// -1 for onboard camera, or change to index of /dev/video V4L2 camera (>=0)	
 		
 		
 bool signal_recieved = false;
@@ -48,7 +52,6 @@ void sig_handler(int signo)
 		signal_recieved = true;
 	}
 }
-
 
 int main( int argc, char** argv )
 {
@@ -70,7 +73,7 @@ int main( int argc, char** argv )
 	/*
 	 * create the camera device
 	 */
-	gstCamera* camera = gstCamera::Create(DEFAULT_CAMERA);
+	gstCamera* camera = gstCamera::Create(640, 480, DEFAULT_CAMERA);
 	
 	if( !camera )
 	{
@@ -87,7 +90,7 @@ int main( int argc, char** argv )
 	/*
 	 * create imageNet
 	 */
-	imageNet* net = imageNet::Create(argc, argv);
+	imageNet* net = imageNet::Create(argc, argv); //where net is created
 	
 	if( !net )
 	{
@@ -136,6 +139,7 @@ int main( int argc, char** argv )
 	 * processing loop
 	 */
 	float confidence = 0.0f;
+	int count = 0;
 	
 	while( !signal_recieved )
 	{
@@ -149,22 +153,31 @@ int main( int argc, char** argv )
 		//	printf("imagenet-camera:  recieved new frame  CPU=0x%p  GPU=0x%p\n", imgCPU, imgCUDA);
 		
 		// convert from YUV to RGBA
-		void* imgRGBA = NULL;
+		void* imgRGBA = NULL; //suspecting this is the variable where the image is processed and saved
 		
 		if( !camera->ConvertRGBA(imgCUDA, &imgRGBA) )
 			printf("imagenet-camera:  failed to convert from NV12 to RGBA\n");
 
-		// classify image
+		// classify image - THIS IS WHERE TENSORFLOW IS CALLED - no boxes drawn (no gathered coordinates)
 		const int img_class = net->Classify((float*)imgRGBA, camera->GetWidth(), camera->GetHeight(), &confidence);
 	
-		if( img_class >= 0 )
-		{
-			printf("imagenet-camera:  %2.5f%% class #%i (%s)\n", confidence * 100.0f, img_class, net->GetClassDesc(img_class));	
-
+		if( img_class >= 0 && confidence >= 0.4)
+		{	
+			const char* obj = {net->GetClassDesc(img_class)}; //gets "string" of possible objects detected
+			
+			if (strstr(obj, "mug") != NULL){ //change this case depending on desired object to be grabbed
+				printf ("YES, RIGHT OBJECT\n");
+			}
+			
+			printf("imagenet-camera:  %2.5f%% class #%i (%s)\n", confidence * 100.0f, img_class, obj);
+			//ex: imagenet-camera:  17.89986% class #673 (mouse, computer mouse)
+			//confidence: double describing value of accuracy being predicted on certain object
+			//to improve accuracy on household objects: find solution to train the model for household objects
+			
 			if( font != NULL )
 			{
 				char str[256];
-				sprintf(str, "%05.2f%% %s", confidence * 100.0f, net->GetClassDesc(img_class));
+				sprintf(str, "%05.2f%% %s", confidence * 100.0f, obj);
 	
 				font->RenderOverlay((float4*)imgRGBA, (float4*)imgRGBA, camera->GetWidth(), camera->GetHeight(),
 								    str, 0, 0, make_float4(255.0f, 255.0f, 255.0f, 255.0f));
@@ -207,10 +220,31 @@ int main( int argc, char** argv )
 
 			display->EndRender();
 		}
+		
+		//save image as jpg, corresponding confidence/relative information as txt (imgRGBA is where image is being stored)
+		
+		//ofstream imgOutFile;
+		//imgOutFile.open(count + ".jpg");
+		
+		ofstream confOutFile;
+		confOutFile.open(count + ".txt");
+		
+		/*for (int i = 0; i < 307200; i++){
+			void* elt = &(float4*)(imgRGBA + i);
+			imgOutFile << *(float4*)elt << endl;
+			
+		}*/
+		confOutFile << confidence << endl;
+		
+		//imgOutFile.close();
+		confOutFile.close();
+		
+		count++;
+		
+		
 	}
 	
 	printf("\nimagenet-camera:  un-initializing video device\n");
-	
 	
 	/*
 	 * shutdown the camera device
